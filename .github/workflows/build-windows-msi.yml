@@ -19,7 +19,7 @@ jobs:
 
       - name: 📦 Install WiX Toolset
         run: |
-          choco install wix --version=3.11.2.4516 --no-progress
+          choco install wix -y --no-progress
         shell: powershell
 
       - name: 🧰 Install Node.js (für Tauri)
