@@ -23,6 +23,10 @@ jobs:
         target: x86_64-pc-windows-gnu
         profile: minimal
         override: true
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y mingw-w64 autoconf automake libtool pkg-config
 
     - name: Install mingw-w64
       run: sudo apt-get install -y mingw-w64
