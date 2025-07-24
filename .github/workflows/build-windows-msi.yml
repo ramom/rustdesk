@@ -17,7 +17,7 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: 📦 Install WiX Toolset
+      - name: 📦 Install WiX Toolset (aktuelle Version)
         run: |
           choco install wix -y --no-progress
         shell: powershell
