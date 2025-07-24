@@ -17,9 +17,12 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: 📦 Install WiX Toolset (aktuelle Version)
+
+      - name: 📦 Download and Install WiX Toolset manually
         run: |
-          choco install wix -y --no-progress
+          Invoke-WebRequest -Uri https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip -OutFile wix.zip
+          Expand-Archive wix.zip -DestinationPath wix
+          $env:Path += ";$PWD\wix"
         shell: powershell
 
       - name: 🧰 Install Node.js (für Tauri)
