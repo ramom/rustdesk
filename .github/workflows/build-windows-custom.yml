@@ -1,0 +1,40 @@
+name: Build RustDesk Windows Custom Client
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v3
+
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: x86_64-pc-windows-gnu
+        profile: minimal
+        override: true
+
+    - name: Install mingw-w64
+      run: sudo apt-get install -y mingw-w64
+
+    - name: Build Windows Client
+      env:
+        RENDEZVOUS_SERVER: ${{ secrets.RENDEZVOUS_SERVER }}
+        KEY: ${{ secrets.KEY }}
+      run: |
+        rustup target add x86_64-pc-windows-gnu
+        cargo build --release --target x86_64-pc-windows-gnu
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: rustdesk-windows-client
+        path: target/x86_64-pc-windows-gnu/release/rustdesk.exe
