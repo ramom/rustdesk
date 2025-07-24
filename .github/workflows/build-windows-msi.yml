@@ -1,0 +1,46 @@
+name: Build RustDesk Windows MSI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-msi:
+    runs-on: windows-latest
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: 📦 Install WiX Toolset
+        run: |
+          choco install wix --version=3.11.2.4516 --no-progress
+        shell: powershell
+
+      - name: 🧰 Install Node.js (für Tauri)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: 📦 Install Build Tools
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          npm install -g yarn
+          yarn
+        shell: powershell
+
+      - name: 🛠️ Build MSI Installer
+        run: |
+          yarn tauri build --target x86_64-pc-windows-msvc
+        shell: powershell
+
+      - name: 📤 Upload MSI Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-msi
+          path: src-tauri/target/release/bundle/msi/*.msi
