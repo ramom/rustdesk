@@ -3,49 +3,111 @@ name: Build RustDesk Windows MSI
 on:
   workflow_dispatch:
 
+env:
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836"
+  LLVM_VERSION: "15.0.6"
+  FLUTTER_VERSION: "3.24.5"
+  VERSION: "1.4.1"
+
 jobs:
   build-msi:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
+      - name: Export GitHub Actions cache environment variables
+        uses: actions/github-script@v6
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
       - name: 📥 Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      - name: 🔧 Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v1
+        with:
+          version: ${{ env.LLVM_VERSION }}
+
       - name: 🛠️ Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: stable
-          override: true
+          toolchain: "1.81"
+          targets: x86_64-pc-windows-msvc
+          components: "rustfmt"
 
-
-      - name: 📦 Download and Install WiX Toolset manually
-        run: |
-          Invoke-WebRequest -Uri https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip -OutFile wix.zip
-          Expand-Archive wix.zip -DestinationPath wix
-          $env:Path += ";$PWD\wix"
-        shell: powershell
-
-      - name: 🧰 Install Node.js (für Tauri)
-        uses: actions/setup-node@v4
+      - name: 🚀 Setup Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          node-version: 18
+          prefix-key: windows-2022
 
-      - name: 📦 Install Build Tools
+      - name: 🐦 Install Flutter
+        uses: subosito/flutter-action@v2.12.0
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: 🔧 Replace engine with rustdesk custom flutter engine
         run: |
-          rustup target add x86_64-pc-windows-msvc
-          npm install -g yarn
-          yarn
+          flutter doctor -v
+          flutter precache --windows
+          Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
+          Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
+          mv -Force windows-x64-release/*  C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
+
+      - name: 🩹 Patch Flutter
+        shell: bash
+        run: |
+          cd $(dirname $(dirname $(which flutter)))
+          [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
+
+      - name: ⚙️ Setup vcpkg with Github Actions binary cache
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: C:\vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
+
+      - name: 📦 Install vcpkg dependencies
+        env:
+          VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+        run: |
+          if (!($env:VCPKG_ROOT\vcpkg install --triplet x64-windows-static --x-install-root="$env:VCPKG_ROOT\installed")) {
+            Get-ChildItem -Path "$env:VCPKG_ROOT" -Filter "*.log" -Recurse | ForEach-Object {
+              Write-Host "$($_.FullName):"
+              Write-Host "======"
+              Get-Content $_.FullName
+              Write-Host "======"
+              Write-Host ""
+            }
+            exit 1
+          }
+          Get-Content -Head 100 "$env:VCPKG_ROOT\buildtrees\ffmpeg\build-x64-windows-static-rel-out.log" -ErrorAction SilentlyContinue
         shell: powershell
 
-      - name: 🛠️ Build MSI Installer
+      - name: 🔨 Build RustDesk
         run: |
-          yarn tauri build --target x86_64-pc-windows-msvc
-        shell: powershell
+          python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
+          mv .\flutter\build\windows\x64\runner\Release .\rustdesk
+
+      - name: 📦 Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: 🏗️ Build MSI
+        run: |
+          mkdir SignOutput -ErrorAction SilentlyContinue
+          pushd .\res\msi
+          python preprocess.py --arp -d ../../rustdesk
+          nuget restore msi.sln
+          msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
+          mv .\Package\bin\x64\Release\en-us\Package.msi ..\..\SignOutput\rustdesk-${{ env.VERSION }}-x86_64.msi
+          popd
 
       - name: 📤 Upload MSI Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rustdesk-msi
-          path: src-tauri/target/release/bundle/msi/*.msi
+          name: rustdesk-msi-${{ env.VERSION }}
+          path: SignOutput/rustdesk-*.msi
