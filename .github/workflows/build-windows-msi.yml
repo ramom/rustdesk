@@ -119,8 +119,20 @@ jobs:
       - name: 📦 Restore NuGet Packages
         run: |
           pushd .\res\msi
+          
+          # Verify nuget is available
+          nuget --version
+          
+          # Restore packages
           nuget restore msi.sln
           nuget restore CustomActions\packages.config -PackagesDirectory packages
+          
+          # Verify packages were restored
+          if (!(Test-Path "packages\WixToolset.DUtil.4.0.5")) {
+            Write-Error "NuGet packages were not restored properly"
+            exit 1
+          }
+          
           popd
 
       - name: 🏗️ Build MSI
@@ -130,17 +142,36 @@ jobs:
         run: |
           mkdir SignOutput -ErrorAction SilentlyContinue
           pushd .\res\msi
+          
+          # Verify dependencies are available
+          Write-Host "Checking dependencies..."
+          wix --version
+          dotnet --version
+          msbuild --version
+          
+          # Check if rustdesk directory exists
+          if (!(Test-Path "../../rustdesk")) {
+            Write-Error "RustDesk build directory not found"
+            exit 1
+          }
+          
+          # Run preprocess script
           python preprocess.py --arp -d ../../rustdesk --version ${{ env.VERSION }}
           
           # Build with detailed logging for troubleshooting
+          Write-Host "Starting MSI build..."
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 -p:TargetVersion=Windows10 -verbosity:normal -detailedSummary
           
           # Check if MSI was created
           if (Test-Path ".\Package\bin\x64\Release\en-us\Package.msi") {
             mv .\Package\bin\x64\Release\en-us\Package.msi ..\..\SignOutput\rustdesk-${{ env.VERSION }}-x86_64.msi
             Write-Host "MSI package created successfully"
+            
+            # Show MSI file info
+            Get-ChildItem ..\..\SignOutput\rustdesk-*.msi | Select-Object Name, Length, LastWriteTime
           } else {
             Write-Error "MSI package was not created"
+            Write-Host "Available files in Package\bin:"
             Get-ChildItem -Path ".\Package\bin" -Recurse -ErrorAction SilentlyContinue
             exit 1
           }
